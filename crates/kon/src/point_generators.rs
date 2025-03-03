@@ -1,4 +1,4 @@
-use image::{DynamicImage, GrayImage, ImageBuffer, Luma};
+use image::{DynamicImage, GenericImageView, GrayImage, ImageBuffer, Luma};
 use imageproc::gradients::sobel_gradients;
 use num_traits::NumCast;
 use rand::distributions::WeightedIndex;
@@ -7,6 +7,7 @@ use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 
 pub struct SobelResult<P> {
+    pub raw_sobel_image: ImageBuffer<Luma<u16>, Vec<u16>>,
     pub sobel_image: ImageBuffer<Luma<u16>, Vec<u16>>,
     pub points: P,
 }
@@ -31,7 +32,7 @@ pub fn generate_points_from_sobel<T>(
 where
     T: NumCast + Send,
 {
-    let width = image.width();
+    let (width, height) = image.dimensions();
 
     // Convert the image to grayscale
     let grayscale: GrayImage = image.to_luma8();
@@ -63,7 +64,8 @@ where
     );
 
     SobelResult {
-        sobel_image,
+        raw_sobel_image: sobel_image,
+        sobel_image: vec_to_imagebuffer(pixel_weights.clone(), width, height),
         points: points.collect(),
     }
 }
@@ -89,4 +91,37 @@ where
             },
         )
         .collect()
+}
+
+/// Convert a Vec<f32> into an ImageBuffer<Luma<u16>> by normalizing and scaling the values.
+///
+/// # Arguments
+/// * `data` - A vector of f32 values representing the image.
+/// * `width` - The width of the image.
+/// * `height` - The height of the image.
+///
+/// # Returns
+/// * `ImageBuffer<Luma<u16>, Vec<u16>>` - The normalized image buffer.
+fn vec_to_imagebuffer(data: Vec<f32>, width: u32, height: u32) -> ImageBuffer<Luma<u16>, Vec<u16>> {
+    let min_val = data
+        .iter()
+        .cloned()
+        .fold(f64::INFINITY, |a, b| f64::min(a, b as f64));
+    let max_val = data
+        .iter()
+        .cloned()
+        .fold(f64::NEG_INFINITY, |a, b| f64::max(a, b as f64));
+
+    let scaled_data: Vec<u16> = if max_val > min_val {
+        data.into_iter()
+            .map(|v| {
+                (((v as f32 - min_val as f32) / (max_val as f32 - min_val as f32)) * 65535.0) as u16
+            })
+            .collect()
+    } else {
+        vec![0; (width * height) as usize]
+    };
+
+    ImageBuffer::from_raw(width, height, scaled_data)
+        .expect("Failed to create ImageBuffer from Vec<u16>")
 }

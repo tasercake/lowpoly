@@ -1,5 +1,5 @@
 use image::imageops::FilterType;
-use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb, RgbImage, Rgba, RgbaImage};
+use image::{DynamicImage, GenericImageView, ImageBuffer, Luma, Rgb, RgbImage, Rgba, RgbaImage};
 use imageproc::drawing::{
     draw_antialiased_line_segment_mut, draw_antialiased_polygon_mut, draw_filled_circle_mut,
 };
@@ -59,6 +59,7 @@ pub fn to_lowpoly(
 
     // Generate anchor points from the image
     let SobelResult {
+        raw_sobel_image,
         sobel_image,
         points,
     } = generate_points_from_sobel::<f32>(&image, num_points, sharpness);
@@ -83,18 +84,7 @@ pub fn to_lowpoly(
 
     // Create a new target image to draw the low-poly version on
     let (width, height) = image.dimensions();
-    let mut debug_image_buffer = if debug {
-        Some(RgbImage::from_pixel(width, height, Rgb([0, 0, 0])))
-    } else {
-        None
-    };
     let mut lowpoly_image_buffer = RgbaImage::from_pixel(width, height, Rgba([0, 0, 0, 0]));
-
-    // For drawing, use the original points iterator
-    match &mut debug_image_buffer {
-        Some(buffer) => draw_points(buffer, &points),
-        None => (),
-    }
 
     // Compute the fill color for each polygon
     let pixels_per_polygon = pixels_in_triangles(&polygons, image);
@@ -104,11 +94,6 @@ pub fn to_lowpoly(
         .map(|pixels| find_dominant_color_kmeans(&pixels))
         .collect();
     draw_polygons_filled(&mut lowpoly_image_buffer, &polygons, &polygon_colors);
-
-    match &mut debug_image_buffer {
-        Some(buffer) => draw_polygon_edges(buffer, &polygons),
-        None => (),
-    }
 
     // Resize to `output_size` but preserve aspect ratio.
     // `output_size` constrains the longest side of the generated image.
@@ -133,28 +118,52 @@ pub fn to_lowpoly(
 
     info!("Done.");
     Ok(LowPolyResult {
-        points: points,
-        polygons: polygons,
-        debug_images: vec![
-            match debug_image_buffer {
-                Some(buffer) => Some(DynamicImage::ImageRgb8(buffer)),
-                None => None,
-            },
-            Some(DynamicImage::ImageLuma16(sobel_image)),
-        ],
+        points: points.clone(),
+        polygons: polygons.clone(),
+        debug_images: if debug {
+            vec![
+                Some(DynamicImage::ImageLuma16(normalize_luma_image(
+                    &raw_sobel_image,
+                ))),
+                Some(DynamicImage::ImageLuma16(normalize_luma_image(
+                    &sobel_image,
+                ))),
+                Some({
+                    let mut buffer = RgbImage::from_pixel(width, height, Rgb([0, 0, 0]));
+                    draw_points(&mut buffer, &points, None);
+                    image::DynamicImage::ImageRgb8(buffer)
+                }),
+                Some({
+                    let mut buffer = RgbImage::from_pixel(width, height, Rgb([0, 0, 0]));
+                    draw_polygon_edges(&mut buffer, &polygons);
+                    image::DynamicImage::ImageRgb8(buffer)
+                }),
+            ]
+        } else {
+            vec![]
+        },
         lowpoly_image: resized,
     })
 }
 
-fn draw_points<T>(image: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, points: &Vec<(T, T)>)
-where
+fn draw_points<T>(
+    image: &mut ImageBuffer<Rgb<u8>, Vec<u8>>,
+    points: &Vec<(T, T)>,
+    point_scale: Option<f32>,
+) where
     T: NumCast + Copy,
 {
+    let point_scale = point_scale.unwrap_or(0.003);
+
+    let (width, height) = (image.width() as f32, image.height() as f32);
+    let diagonal = (width.powi(2) + height.powi(2)).sqrt(); // Compute image diagonal
+    let radius = (diagonal * point_scale).max(1.0) as i32; // Set radius as 1/100th of diagonal, minimum 1px
+
     points.into_iter().for_each(|(x, y)| {
         draw_filled_circle_mut(
             image,
             (x.to_i32().unwrap(), y.to_i32().unwrap()),
-            8,
+            radius,
             Rgb([255, 0, 0]),
         );
     });
@@ -215,4 +224,30 @@ fn draw_polygons_filled(
                 .collect();
             draw_antialiased_polygon_mut(image, &pts, *color, interpolate);
         });
+}
+
+/// Normalize a Luma image to span the full `u16` grayscale range.
+///
+/// # Arguments
+/// * `luma_image` - A reference to a grayscale image (`ImageBuffer<Luma<u16>, Vec<u16>>`).
+///
+/// # Returns
+/// * A normalized clone of the input image.
+pub fn normalize_luma_image(
+    luma_image: &ImageBuffer<Luma<u16>, Vec<u16>>,
+) -> ImageBuffer<Luma<u16>, Vec<u16>> {
+    let min_val = luma_image.iter().min().copied().unwrap_or(0);
+    let max_val = luma_image.iter().max().copied().unwrap_or(65535);
+
+    // Clone the original image
+    let mut normalized_image = luma_image.clone();
+
+    // Avoid division by zero
+    if max_val > min_val {
+        for pixel in normalized_image.iter_mut() {
+            *pixel = ((*pixel - min_val) as f32 / (max_val - min_val) as f32 * 65535.0) as u16;
+        }
+    }
+
+    normalized_image
 }
