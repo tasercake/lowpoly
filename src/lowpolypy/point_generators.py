@@ -190,40 +190,25 @@ def remove_duplicate_points(
     Returns:
         A (K, 2) float tensor of filtered points (K <= N).
     """
+    from scipy.spatial import cKDTree
+
     N = points.shape[0]
     if N <= 1:
         return points  # Nothing to remove
 
-    # We'll gather all pairs (i,j) where dist < tolerance
-    close_pairs = []
-    tol_sq = tolerance * tolerance
+    # Create a KD-tree for the points
+    kdtree = cKDTree(points)
 
-    for i in range(N):
-        # Once a point is discarded, we won't re-check it.
-        for j in range(i + 1, N):
-            dx = points[i, 0] - points[j, 0]
-            dy = points[i, 1] - points[j, 1]
-            dist_sq = dx * dx + dy * dy
-            if dist_sq < tol_sq:
-                close_pairs.append((i, j))
+    # Query the KD-tree for pairs of points within the tolerance
+    pairs = kdtree.query_pairs(tolerance)
 
-    # Build neighbor adjacency
-    neighbors = {}
-    for i, j in close_pairs:
-        neighbors.setdefault(i, set()).add(j)
-        neighbors.setdefault(j, set()).add(i)
+    # Convert pairs to a set of indices to keep
+    keep_indices = set(range(N))
+    for i, j in pairs:
+        keep_indices.discard(j)  # Discard duplicates, keep the first occurrence
 
-    # Mark points as 'discarded' if they are neighbors of a point we keep
-    discarded = set()
-    for node in range(N):
-        if node not in discarded:
-            # keep 'node', discard all its neighbors
-            discarded.update(neighbors.get(node, set()))
-
-    # The final set of safe indices
-    keep_indices = [i for i in range(N) if i not in discarded]
-
-    return points[keep_indices]
+    # Return the filtered points
+    return points[list(keep_indices)]
 
 
 def rescale_points(points: torch.Tensor, image_size: tuple[int, int]) -> torch.Tensor:
