@@ -8,6 +8,15 @@ from torch.types import Number
 
 
 def random_points(*, num_points: int) -> MultiPoint:
+    """
+    Generates a set of random 2D points uniformly distributed within a unit square.
+    
+    Args:
+        num_points (int): The number of random points to generate.
+    
+    Returns:
+        MultiPoint: An object containing the generated 2D points.
+    """
     coordinates = np.random.rand(num_points, 2)
     points = MultiPoint(coordinates)
     return points
@@ -21,13 +30,23 @@ def conv_points(
     weight_filler_points: bool = True,
 ) -> MultiPoint:
     """
-    Generate points based on the image gradient, placing more points where the gradient is higher.
-
-    Arguments:
-    - image: The input image.
-    - num_points: Number of points to generate based on the image gradient.
-    - num_filler_points: Number of additional filler points to generate.
-    - weight_filler_points: Whether to weight filler points based on the inverse gradient.
+    Generate a MultiPoint from an image using gradient-based sampling.
+    
+    This function converts an RGB image to grayscale and computes a gradient map using a custom convolution
+    kernel. It normalizes the gradient magnitude to weight the random selection of points so that regions with
+    higher contrast are more likely to be sampled, with coordinates scaled to the unit square. Optionally,
+    filler points are also sampled from areas with lower gradient intensity using either weighted or uniform
+    random sampling, and then combined with the primary points.
+    
+    Args:
+        image: An RGB image as a NumPy array.
+        num_points: The number of primary points to sample from high-gradient regions.
+        num_filler_points: The number of additional filler points to sample from lower-gradient areas.
+        weight_filler_points: If True, use inverse gradient weights when sampling filler points; otherwise,
+            sample them uniformly.
+    
+    Returns:
+        A MultiPoint object containing the sampled points with normalized coordinates.
     """
     points: list[Point] = []
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -251,8 +270,15 @@ def rescale_points(points: torch.Tensor, image_size: tuple[int, int]) -> torch.T
 
 def _convex_hull_2d(points: torch.Tensor) -> torch.Tensor:
     """
-    A simple 2D convex hull via the Andrew's monotone chain algorithm.
-    Returns a (H, 2) float tensor of hull vertices in CCW order.
+    Computes the 2D convex hull of a set of points using Andrew's monotone chain algorithm.
+    
+    This function expects a tensor of shape (N, 2) representing Cartesian coordinates.
+    Duplicate points are removed; if fewer than three unique points remain, the input is
+    returned directly. Otherwise, the convex hull is computed and returned as a (H, 2)
+    float tensor with vertices in counter-clockwise order.
+    
+    Returns:
+        torch.Tensor: A tensor of shape (H, 2) containing the convex hull vertices.
     """
     # Convert (N,2) into a Python list of (x, y) for easier sorting
     pts = [(points[i, 0].item(), points[i, 1].item()) for i in range(points.shape[0])]
@@ -268,6 +294,15 @@ def _convex_hull_2d(points: torch.Tensor) -> torch.Tensor:
 
     # Cross product of OA and OB vectors, >0 means left turn
     def cross(o, a, b):
+        """
+        Calculate the 2D cross product of vectors OA and OB.
+        
+        Given an origin point o and two points a and b, this function computes the cross
+        product of the vectors (a - o) and (b - o), returning the scalar value corresponding
+        to the signed area of the parallelogram defined by these vectors. A positive result
+        indicates a counter-clockwise turn, a negative result indicates a clockwise turn,
+        and zero indicates collinear points.
+        """
         return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
 
     # Build lower hull
@@ -294,8 +329,19 @@ def _closest_point_on_box_perimeter(
     pt: torch.Tensor, low: float, high: float
 ) -> torch.Tensor:
     """
-    Given a point pt=(x,y), return the closest point on the perimeter
-    of the axis-aligned square [low, high]x[low, high].
+    Finds the nearest point on the perimeter of an axis-aligned square.
+    
+    Given a 2D point and a square defined by the interval [low, high] for both axes, this
+    function computes candidate points on the square's boundaries by clamping the point's
+    coordinates and returns the candidate with the smallest Euclidean distance to the input.
+    
+    Parameters:
+        pt (torch.Tensor): A tensor with two elements [x, y] representing a 2D point.
+        low (float): The lower boundary of the square.
+        high (float): The upper boundary of the square.
+    
+    Returns:
+        torch.Tensor: The point on the square's perimeter that is closest to the input point.
     """
     # We want to “snap” (x, y) to whichever boundary edge is nearest.
     # The boundary is composed of four line segments, but we can just
@@ -322,4 +368,10 @@ def _closest_point_on_box_perimeter(
 
 
 def _clamp(v: float, low: float, high: float) -> float:
+    """
+    Clamps a value within the specified inclusive range.
+    
+    Returns the lower bound if the value is less than it, the upper bound if the value is
+    greater than it, and the value itself otherwise.
+    """
     return low if v < low else (high if v > high else v)

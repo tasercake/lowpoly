@@ -3,16 +3,17 @@ import torch
 
 def generate_delaunay_polygons(*, points: torch.Tensor) -> list[torch.Tensor]:
     """
-    Uses a Bowyer-Watson approach to compute the Delaunay triangulation of
-    the 2D input points. Returns a list of (3, 2) float tensors, each
-    representing one triangle's vertices.
-
+    Computes the Delaunay triangulation via the Bowyer-Watson algorithm.
+    
+    This function converts a tensor of 2D points into a list of triangles, each
+    represented as a (3, 2) tensor containing the vertices of a triangle. If fewer
+    than three unique points are provided, an empty list is returned.
+    
     Args:
-        points: (N, 2) float tensor of 2D coordinates in [0,1] or any range.
-
+        points: A tensor of shape (N, 2) containing 2D coordinates.
+    
     Returns:
-        A list of (3, 2) float tensors. Each tensor has the coordinates
-        of a single triangle's vertices.
+        A list of (3, 2) tensors, each representing the vertices of a triangle.
     """
     # 1) Possibly reject degenerate cases (fewer than 3 unique points):
     unique_positions = set((float(x), float(y)) for x, y in points)
@@ -40,9 +41,16 @@ def generate_delaunay_polygons(*, points: torch.Tensor) -> list[torch.Tensor]:
 
 def _bowyer_watson(points: torch.Tensor) -> list[tuple[float, float, float]]:
     """
-    Computes Delaunay triangulation in 2D for the given points using
-    the Bowyer-Watson algorithm. Returns a list of triangles, where
-    each triangle is a tuple of (i1, i2, i3) referencing 'points'.
+    Compute the Delaunay triangulation for 2D points using the Bowyer-Watson algorithm.
+    
+    This function constructs a super-triangle that bounds all input points, then inserts each
+    point into the triangulation by removing triangles whose circumcircles contain the point and
+    forming new triangles from the resulting boundary edges. Triangles that include any vertex from
+    the super-triangle are discarded. Each returned triangle is represented as a tuple of indices
+    that refer to rows in the input tensor.
+     
+    Returns:
+        list[tuple[float, float, float]]: The computed triangles of the Delaunay triangulation.
     """
     # Convert each row to (x, y, idx)
     pt_list: list[tuple[float, float, float]] = []
@@ -96,8 +104,21 @@ def _bowyer_watson(points: torch.Tensor) -> list[tuple[float, float, float]]:
 
 def _add_point_to_triangles(point, all_points, triangles):
     """
-    Inserts 'point' into the existing triangulation, returning the updated
-    list of triangles.
+    Insert a new point into a Delaunay triangulation.
+    
+    The function identifies triangles whose circumcircles contain the new point,
+    removes those triangles, and forms new triangles by connecting the new point
+    to the boundary edges of the removed region.
+    
+    Args:
+        point: A tuple (x, y, index) representing the new point’s coordinates and index.
+        all_points: A collection of points, each represented as a tuple (x, y, index),
+            used for circumcircle computations.
+        triangles: A list of triangles, where each triangle is a tuple of three indices
+            referencing points in all_points.
+    
+    Returns:
+        The updated list of triangles after inserting the new point.
     """
     xP, yP, idxP = point
     bad_triangles = []
@@ -135,9 +156,14 @@ def _add_point_to_triangles(point, all_points, triangles):
 
 def _in_circumcircle(xP, yP, iA, iB, iC, all_points):
     """
-    Checks if (xP, yP) lies within the circumcircle of triangle (iA, iB, iC).
-    Some references use det < 0.0 here instead of det > 0.0,
-    depending on the orientation of your points.
+    Determines if a given point lies inside the circumcircle of a triangle.
+    
+    The function tests whether the point (xP, yP) is contained within the circumcircle
+    of the triangle defined by the vertices at indices iA, iB, and iC in the provided
+    points list. It evaluates a determinant-based condition and returns True if the
+    determinant is positive, indicating that the point is inside the circumcircle.
+    Note that depending on the orientation of the points, some formulations use a
+    negative determinant for this test.
     """
     xA, yA, _ = _get_point(iA, all_points)
     xB, yB, _ = _get_point(iB, all_points)
@@ -156,6 +182,11 @@ def _in_circumcircle(xP, yP, iA, iB, iC, all_points):
 
 def _get_point(idx, pt_list):
     # Return the (x, y, idx) tuple for the given index
+    """
+    Retrieve the (x, y, idx) tuple for the given index.
+    
+    Iterates over a list of point tuples, each expected to have the format (x, y, idx), and returns the tuple whose third element matches the specified index. Raises a ValueError if no matching tuple is found.
+    """
     for p in pt_list:
         if p[2] == idx:
             return p
@@ -164,7 +195,14 @@ def _get_point(idx, pt_list):
 
 def _det_3x3(m):
     """
-    Computes determinant of a 3x3 matrix in plain Python.
+    Computes the determinant of a 3x3 matrix.
+    
+    Args:
+        m: A nested iterable (e.g. a list of lists) with three rows and three numeric
+           elements per row.
+    
+    Returns:
+        The determinant of the matrix.
     """
     return (
         m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
@@ -175,6 +213,14 @@ def _det_3x3(m):
 
 # TODO: Implement `generate_voronoi_polygons`
 def generate_voronoi_polygons(*, points: torch.Tensor) -> torch.Tensor:
+    """
+    Generates Voronoi polygons for the given 2D points.
+    
+    This placeholder function is not implemented and will always raise a NotImplementedError.
+        
+    Raises:
+        NotImplementedError: Always raised as the Voronoi polygon generation is not available.
+    """
     raise NotImplementedError("Voronoi not implemented yet.")
 
 
