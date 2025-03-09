@@ -34,11 +34,11 @@ def run(
     )
     points = with_boundary_points(points)
     points = remove_duplicate_points(points, 3e-4)
-    print(points, points.shape)
+    logger.debug(points, points.shape)
 
     logger.info("Generating polygon mesh from points...")
     polygons = generate_delaunay_polygons(points=points)
-    print(polygons)
+    logger.debug(polygons)
 
     logger.info("Shading polygons...")
     # Resize the image only before shading. This saves memory & compute when generating points and polygons.
